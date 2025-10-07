@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check whether your message is toxic!</title>
+    <style>
+        body {
+            background-color: rgb(244, 54, 218);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            height: 100vh;
+            margin: 0;
+            color: aqua;
+        }
+
+        p {
+            text-align: center;
+            font-size: 50px;
+            margin: 20px; /* Add margin for better spacing */
+            font-family: bold;
+        }
+
+        .submit {
+            display: flex;
+            background-color: rgb(231, 40, 205);
+            color: white;
+            font-size: 30px;
+        }
+
+        /* Container for layout */
+        .tg {
+            border-collapse: collapse;
+            border-spacing: 0;
+            border-color: transparent;
+            border-width: 1px;
+            font-size: 14px;
+            overflow: hidden;
+            padding: 10px 5px;
+            word-break: normal;
+            padding-bottom: 60px;
+        }
+
+        .tg td {
+            border-color: transparent;
+            border-width: 1px;
+            font-size: 24px;
+            overflow: hidden;
+            padding: 10px 5px;
+            word-break: normal;
+        }
+
+        .tg th {
+            border-color: transparent;
+            border-width: 1px;
+            font-size: 24px;
+            font-weight: normal;
+            overflow: hidden;
+            padding: 10px 5px;
+            word-break: normal;
+        }
+
+        .tg .tg-1wig {
+            text-align: left;
+            vertical-align: top
+        }
+
+        .tg .tg-0lax {
+            text-align: left;
+            vertical-align: top
+        }
+    </style>
+</head>
+<body>
+<table class="tg">
+    <thead>
+    <tr>
+        <th class="tg-0lax"><span style="font-weight:bold">Toxic Category</span></th>
+        <th class="tg-1wig">Score of Toxicity</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr>
+        <td class="tg-0lax">Toxic</td>
+        <td class="tg-0lax">{{ cleaned_prediction_response.get("toxic", 999) }} %</td>
+    </tr>
+    <tr>
+        <td class="tg-0lax">Severe Toxic</td>
+        <td class="tg-0lax">{{ cleaned_prediction_response.get("severe_toxic", 999) }} %</td>
+    </tr>
+    <tr>
+        <td class="tg-0lax">Obscene</td>
+        <td class="tg-0lax">{{ cleaned_prediction_response.get("obscene", 999) }} %</td>
+    </tr>
+    <tr>
+        <td class="tg-0lax">Identity Hate</td>
+        <td class="tg-0lax">{{ cleaned_prediction_response.get("identity_hate", 999) }} %</td>
+    </tr>
+    <tr>
+        <td class="tg-0lax">Insult</td>
+        <td class="tg-0lax">{{ cleaned_prediction_response.get("insult", 999) }} %</td>
+    </tr>
+
+    <tr>
+        <td class="tg-0lax">Threat</td>
+        <td class="tg-0lax">{{ cleaned_prediction_response.get("threat", 999) }} %</td>
+    </tr>
+    </tbody>
+</table>
+
+
+{% if cleaned_prediction_response.get("toxic", 999) > 50 %}
+<p>Hey there! Your message might have a touch of toxicity.</p>
+<p>Take a moment to reconsider your words and let's keep the vibe sweet and positive for each other! 💖✨</p>
+{% else %}
+<p>Hey there! Your message is all good, no toxicity detected.</p>
+<p>Keep spreading the kindness and positive vibes! 🌸💕</p>
+{% endif %}
+
+<form action="/" method="GET" class="layout-container">
+    <input class="submit" type='submit' value='Make new prediction!' action=""/>
+</form>
+
+</body>
+</html>

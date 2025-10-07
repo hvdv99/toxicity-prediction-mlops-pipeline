@@ -1,0 +1,22 @@
+{
+ "steps": [
+
+  {
+       "name": "gcr.io/cloud-builders/gsutil",
+       "args": [
+           "cp",           
+		   "gs://data_de2023_group1/parameters.json",
+           "."
+        ]
+   },
+   {
+       "name": "${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/pipeline-executor:0.0.1",
+       "args": [
+           "--name=toxic-predictor-pipeline",
+		   "--pipeline_def=./vertex_ai_pipeline/toxic_predictor_train_pipeline.yaml",
+           "--pipeline_root=gs://temp_de2023_group1",
+		   "--parameter_dict=./parameters.json"
+        ]
+   }
+   ]
+ }

@@ -1,0 +1,489 @@
+# PIPELINE DEFINITION
+# Name: toxic-predictor
+# Inputs:
+#    data_bucket: str
+#    model_repo: str
+#    project_id: str
+#    trainset_filename: str
+# Outputs:
+#    metrics-calculation-identity_hate: system.ClassificationMetrics
+#    metrics-calculation-insult: system.ClassificationMetrics
+#    metrics-calculation-obscene: system.ClassificationMetrics
+#    metrics-calculation-severe_toxic: system.ClassificationMetrics
+#    metrics-calculation-threat: system.ClassificationMetrics
+#    metrics-calculation-toxic: system.ClassificationMetrics
+components:
+  comp-metrics-calculation:
+    executorLabel: exec-metrics-calculation
+    inputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        models:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        data_bucket:
+          parameterType: STRING
+        model_repo:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        identity_hate:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        insult:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        obscene:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        severe_toxic:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        threat:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        toxic:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+  comp-multilabel-classifier-trainer:
+    executorLabel: exec-multilabel-classifier-trainer
+    inputDefinitions:
+      artifacts:
+        train:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        models:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-toxic-data-cleaner:
+    executorLabel: exec-toxic-data-cleaner
+    inputDefinitions:
+      artifacts:
+        features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        cleaned_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-toxic-data-ingestion:
+    executorLabel: exec-toxic-data-ingestion
+    inputDefinitions:
+      parameters:
+        bucket:
+          parameterType: STRING
+        data_file_name:
+          parameterType: STRING
+        project:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        features:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-toxic-predictor:
+    executorLabel: exec-toxic-predictor
+    inputDefinitions:
+      artifacts:
+        models:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+        test:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        project:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        predicted_data_path:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-toxic-train-test-split:
+    executorLabel: exec-toxic-train-test-split
+    inputDefinitions:
+      artifacts:
+        cleaned_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        test:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-metrics-calculation:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - metrics_calculation
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'kfp==2.3.0'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&\
+          \  python3 -m pip install --quiet --no-warn-script-location 'scikit-learn'\
+          \ 'pandas' 'numpy' 'google-cloud-storage' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef metrics_calculation(metrics: Input[Artifact],\n             \
+          \           models: Input[Artifact],\n                        project_id:\
+          \ str,\n                        data_bucket: str,\n                    \
+          \    model_repo: str,\n                        toxic: Output[ClassificationMetrics],\n\
+          \                        severe_toxic: Output[ClassificationMetrics],\n\
+          \                        obscene: Output[ClassificationMetrics],\n     \
+          \                   threat: Output[ClassificationMetrics],\n           \
+          \             insult: Output[ClassificationMetrics],\n                 \
+          \       identity_hate: Output[ClassificationMetrics],\n                \
+          \        ):\n    import pandas as pd\n    import tarfile\n    import shutil\n\
+          \    import json\n    from sklearn.metrics import confusion_matrix, roc_curve,\
+          \ accuracy_score, precision_score, recall_score, f1_score\n    from google.cloud\
+          \ import storage, exceptions\n    import os\n    from numpy import nan_to_num\n\
+          \    from pathlib import Path\n    import logging\n    import requests\n\
+          \n    def reload_prediction_models(project_id, bucket_name, filename, dest_filename):\n\
+          \        client = storage.Client(project=project_id)\n        bucket = client.bucket(bucket_name)\n\
+          \        blob = bucket.blob(filename)\n\n        try:  # Downloading the\
+          \ url file of the prediction api\n            Path(dest_filename).parent.mkdir(parents=True,\
+          \ exist_ok=True)\n            blob.download_to_filename(filename=dest_filename)\n\
+          \            logging.info('...Download url file...')\n        except exceptions.NotFound:\n\
+          \            logging.error(f\"File {filename} does not exist in bucket {bucket_name}.\"\
+          )\n        with open(dest_filename, 'r') as f:\n            url = f.read()\
+          \ + '/reload_model'\n\n        try:  # Sending model reload request to endpoint\n\
+          \            response = requests.post(url)\n            if response.status_code\
+          \ == 200:\n                logging.info('...Models reloaded...')\n     \
+          \       else:\n                logging.error('...Something went wrong with\
+          \ reloading the models...')\n        except requests.exceptions.RequestException\
+          \ as e:\n            logging.error(f\"HTTP request failed: {e}\")\n\n  \
+          \  shutil.copyfile(metrics.path, 'metrics.tar')\n    with tarfile.open('metrics.tar',\
+          \ 'r') as tar:\n        tar.extractall(path='.')\n\n    y = pd.read_csv('y.csv')\n\
+          \    y_pred = pd.read_csv('y_pred.csv')\n    y_pred_proba = pd.read_csv('y_pred_proba.csv')\n\
+          \n    metrics = {\n        'accuracy': accuracy_score(y, y_pred),\n    \
+          \    'precision': precision_score(y, y_pred, average='micro'),\n       \
+          \ 'recall': recall_score(y, y_pred, average='micro'),\n        'f1': f1_score(y,\
+          \ y_pred, average='micro')\n    }\n\n    # load metrics.json from data bucket\
+          \ from current model\n    client = storage.Client(project=project_id)\n\
+          \    bucket = client.get_bucket(data_bucket)\n    temp_path = 'temp'\n \
+          \   if not os.path.exists(temp_path):\n        os.makedirs(temp_path)\n\
+          \    local_file = os.path.join(temp_path, 'metrics.json')\n    blob = bucket.blob('metrics.json')\n\
+          \    blob.download_to_filename(local_file)\n    with open(local_file, 'r')\
+          \ as f:\n        metrics_json = json.load(f)\n\n    # compare current metrics\
+          \ with metrics from data bucket\n    # if f1 score is higher, upload new\
+          \ metrics.json to data bucket\n    if metrics['f1'] > metrics_json['f1']:\n\
+          \        # save metrics locally\n        with open('metrics.json', 'w')\
+          \ as outfile:\n            json.dump(metrics, outfile)\n        # upload\
+          \ metrics to data bucket\n        blob = bucket.blob('metrics.json')\n \
+          \       blob.upload_from_filename('metrics.json')\n        # unpack model\
+          \ tar file\n        # unpack model tar file\n        shutil.copyfile(models.path,\
+          \ 'models.tar')\n        extraction_path = 'models'\n        if not os.path.exists(extraction_path):\n\
+          \            os.makedirs(extraction_path, exist_ok=True)\n        with tarfile.open('models.tar',\
+          \ 'r') as tar:\n            tar.extractall(path=extraction_path)\n\n   \
+          \     # upload model to data bucket\n        for file in os.listdir(extraction_path):\n\
+          \            bucket = client.get_bucket(model_repo)\n            blob =\
+          \ bucket.blob(file)\n            blob.upload_from_filename(os.path.join(extraction_path,\
+          \ file))\n\n        reload_prediction_models(project_id, 'temp_de2023_group1',\
+          \ 'predict_api_url.text',\n                             'tmp/predict_api_url.text')\n\
+          \n\n\n    # a subset is used for visualization because the full dataset\
+          \ is too large\n    # the limit for metric logging is 131kb\n    # our full\
+          \ prediction output is 1 mb\n    #Sample indices from the y dataframe\n\
+          \    sampled_indices = y.sample(frac=0.1, random_state=1).index\n\n    #\
+          \ Use these indices to subset all three dataframes\n    y = y.loc[sampled_indices]\n\
+          \    y_pred = y_pred.loc[sampled_indices]\n    y_pred_proba = y_pred_proba.loc[sampled_indices]\n\
+          \n    # Mapping column names to the Output[ClassificationMetrics] objects\n\
+          \    col_to_output = {\n        'toxic': toxic,\n        'severe_toxic':\
+          \ severe_toxic,\n        'obscene': obscene,\n        'threat': threat,\n\
+          \        'insult': insult,\n        'identity_hate': identity_hate\n   \
+          \ }\n\n    for col in y.columns:\n        fpr, tpr, thresholds = roc_curve(y_true=y[col],\
+          \ y_score=y_pred_proba[col],pos_label=True)\n        thresholds = nan_to_num(thresholds)\n\
+          \        col_to_output[col].log_roc_curve(fpr, tpr, thresholds)  # Use the\
+          \ mapped object\n\n        # Log confusion matrix\n        col_to_output[col].log_confusion_matrix(['Negative',\
+          \ 'Positive'], confusion_matrix(y[col], y_pred[col]).tolist())\n\n"
+        image: python:3.10
+    exec-multilabel-classifier-trainer:
+      container:
+        args:
+        - --train_path
+        - '{{$.inputs.artifacts[''train''].path}}'
+        - --models_path
+        - '{{$.outputs.artifacts[''models''].path}}'
+        command:
+        - python3
+        - /pipelines/component/src/component.py
+        image: us-central1-docker.pkg.dev/assignment1-402316/image-repo-group1/toxic-multilabel-trainer:0.0.1
+    exec-toxic-data-cleaner:
+      container:
+        args:
+        - --raw_data_path
+        - '{{$.inputs.artifacts[''features''].path}}'
+        - --cleaned_data_path
+        - '{{$.outputs.artifacts[''cleaned_data''].path}}'
+        command:
+        - python3
+        - /pipelines/component/src/component.py
+        image: us-central1-docker.pkg.dev/assignment1-402316/image-repo-group1/toxic-data-cleaner:0.0.1
+    exec-toxic-data-ingestion:
+      container:
+        args:
+        - --project_id
+        - '{{$.inputs.parameters[''project'']}}'
+        - --bucket
+        - '{{$.inputs.parameters[''bucket'']}}'
+        - --file_name
+        - '{{$.inputs.parameters[''data_file_name'']}}'
+        - --feature_path
+        - '{{$.outputs.artifacts[''features''].path}}'
+        command:
+        - python3
+        - /pipelines/component/src/component.py
+        image: us-central1-docker.pkg.dev/assignment1-402316/image-repo-group1/toxic-data-ingestor:0.0.1
+    exec-toxic-predictor:
+      container:
+        args:
+        - --project_id
+        - '{{$.inputs.parameters[''project'']}}'
+        - --predict_data
+        - '{{$.inputs.artifacts[''test''].path}}'
+        - --model_repo
+        - '{{$.inputs.artifacts[''models''].path}}'
+        - --predicted_data_path
+        - '{{$.outputs.artifacts[''predicted_data_path''].path}}'
+        - --validation_data
+        command:
+        - python3
+        - /pipelines/component/src/component.py
+        image: us-central1-docker.pkg.dev/assignment1-402316/image-repo-group1/toxic-predictor:0.0.1
+    exec-toxic-train-test-split:
+      container:
+        args:
+        - --clean_data_path
+        - '{{$.inputs.artifacts[''cleaned_data''].path}}'
+        - --train_path
+        - '{{$.outputs.artifacts[''train''].path}}'
+        - --test_path
+        - '{{$.outputs.artifacts[''test''].path}}'
+        command:
+        - python3
+        - /pipelines/component/src/component.py
+        image: us-central1-docker.pkg.dev/assignment1-402316/image-repo-group1/toxic-train-test-split:0.0.1
+pipelineInfo:
+  name: toxic-predictor
+root:
+  dag:
+    outputs:
+      artifacts:
+        metrics-calculation-identity_hate:
+          artifactSelectors:
+          - outputArtifactKey: identity_hate
+            producerSubtask: metrics-calculation
+        metrics-calculation-insult:
+          artifactSelectors:
+          - outputArtifactKey: insult
+            producerSubtask: metrics-calculation
+        metrics-calculation-obscene:
+          artifactSelectors:
+          - outputArtifactKey: obscene
+            producerSubtask: metrics-calculation
+        metrics-calculation-severe_toxic:
+          artifactSelectors:
+          - outputArtifactKey: severe_toxic
+            producerSubtask: metrics-calculation
+        metrics-calculation-threat:
+          artifactSelectors:
+          - outputArtifactKey: threat
+            producerSubtask: metrics-calculation
+        metrics-calculation-toxic:
+          artifactSelectors:
+          - outputArtifactKey: toxic
+            producerSubtask: metrics-calculation
+    tasks:
+      metrics-calculation:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-metrics-calculation
+        dependentTasks:
+        - multilabel-classifier-trainer
+        - toxic-predictor
+        inputs:
+          artifacts:
+            metrics:
+              taskOutputArtifact:
+                outputArtifactKey: predicted_data_path
+                producerTask: toxic-predictor
+            models:
+              taskOutputArtifact:
+                outputArtifactKey: models
+                producerTask: multilabel-classifier-trainer
+          parameters:
+            data_bucket:
+              componentInputParameter: data_bucket
+            model_repo:
+              componentInputParameter: model_repo
+            project_id:
+              componentInputParameter: project_id
+        taskInfo:
+          name: metrics-calculation
+      multilabel-classifier-trainer:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-multilabel-classifier-trainer
+        dependentTasks:
+        - toxic-train-test-split
+        inputs:
+          artifacts:
+            train:
+              taskOutputArtifact:
+                outputArtifactKey: train
+                producerTask: toxic-train-test-split
+        taskInfo:
+          name: multilabel-classifier-trainer
+      toxic-data-cleaner:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-toxic-data-cleaner
+        dependentTasks:
+        - toxic-data-ingestion
+        inputs:
+          artifacts:
+            features:
+              taskOutputArtifact:
+                outputArtifactKey: features
+                producerTask: toxic-data-ingestion
+        taskInfo:
+          name: toxic-data-cleaner
+      toxic-data-ingestion:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-toxic-data-ingestion
+        inputs:
+          parameters:
+            bucket:
+              componentInputParameter: data_bucket
+            data_file_name:
+              componentInputParameter: trainset_filename
+            project:
+              componentInputParameter: project_id
+        taskInfo:
+          name: toxic-data-ingestion
+      toxic-predictor:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-toxic-predictor
+        dependentTasks:
+        - multilabel-classifier-trainer
+        - toxic-train-test-split
+        inputs:
+          artifacts:
+            models:
+              taskOutputArtifact:
+                outputArtifactKey: models
+                producerTask: multilabel-classifier-trainer
+            test:
+              taskOutputArtifact:
+                outputArtifactKey: test
+                producerTask: toxic-train-test-split
+          parameters:
+            project:
+              componentInputParameter: project_id
+        taskInfo:
+          name: toxic-predictor
+      toxic-train-test-split:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-toxic-train-test-split
+        dependentTasks:
+        - toxic-data-cleaner
+        inputs:
+          artifacts:
+            cleaned_data:
+              taskOutputArtifact:
+                outputArtifactKey: cleaned_data
+                producerTask: toxic-data-cleaner
+        taskInfo:
+          name: toxic-train-test-split
+  inputDefinitions:
+    parameters:
+      data_bucket:
+        parameterType: STRING
+      model_repo:
+        parameterType: STRING
+      project_id:
+        parameterType: STRING
+      trainset_filename:
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      metrics-calculation-identity_hate:
+        artifactType:
+          schemaTitle: system.ClassificationMetrics
+          schemaVersion: 0.0.1
+      metrics-calculation-insult:
+        artifactType:
+          schemaTitle: system.ClassificationMetrics
+          schemaVersion: 0.0.1
+      metrics-calculation-obscene:
+        artifactType:
+          schemaTitle: system.ClassificationMetrics
+          schemaVersion: 0.0.1
+      metrics-calculation-severe_toxic:
+        artifactType:
+          schemaTitle: system.ClassificationMetrics
+          schemaVersion: 0.0.1
+      metrics-calculation-threat:
+        artifactType:
+          schemaTitle: system.ClassificationMetrics
+          schemaVersion: 0.0.1
+      metrics-calculation-toxic:
+        artifactType:
+          schemaTitle: system.ClassificationMetrics
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.3.0

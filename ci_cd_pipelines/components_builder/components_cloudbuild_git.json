@@ -1,0 +1,46 @@
+{
+ "steps": [
+   {
+      "name": "gcr.io/cloud-builders/gcloud",
+      "entrypoint": "bash",
+      "args": [
+        "-c",
+        "gcloud secrets versions access latest --secret=github-ssh-key > /root/.ssh/id_github"
+      ],
+      "volumes": [
+        {
+          "name": "ssh",
+          "path": "/root/.ssh"
+        }
+      ]
+    },
+    {
+      "name": "gcr.io/cloud-builders/git",
+      "entrypoint": "bash",
+      "args": [
+        "-c",
+        "chmod 600 /root/.ssh/id_github && echo -e \"Hostname github.com\\nIdentityFile /root/.ssh/id_github\" > /root/.ssh/config && ssh-keyscan -t rsa github.com > /root/.ssh/known_hosts"
+      ],
+      "volumes": [
+        {
+          "name": "ssh",
+          "path": "/root/.ssh"
+        }
+      ]
+    },
+    {
+      "name": "gcr.io/cloud-builders/git",
+      "entrypoint": "bash",
+      "args": [
+        "-c",
+        "git clone --depth 1 git@github.com:RomanNekrasov/DataEngineering.git && cd DataEngineering && echo \"data uploaded\" >> components/history.txt && git config user.name RomanNekrasov && git config user.email romanvanriessen@gmail.com && git add -A && git commit -m \"data uploaded\" && git push origin main"
+      ],
+      "volumes": [
+        {
+          "name": "ssh",
+          "path": "/root/.ssh"
+        }
+      ]
+    }
+ ]
+}
